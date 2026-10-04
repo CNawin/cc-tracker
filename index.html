@@ -118,6 +118,11 @@ body{font-family:'Sarabun',system-ui,sans-serif;background:#f0f4f8;color:#1a202c
 /* SLIP */
 .slip-preview{margin-top:8px;text-align:center}
 .slip-preview img{max-width:100%;max-height:200px;border-radius:8px;border:1px solid #e2e8f0}
+/* NOTE TEXTAREA */
+.note-textarea{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:inherit;resize:vertical;min-height:60px;color:#374151;background:#fafafa;margin-top:4px;}
+.note-textarea:focus{outline:none;border-color:#6366f1;background:#fff;}
+.note-syncing{color:#6366f1;font-size:11px;margin-top:3px;display:none;}
+.note-syncing.show{display:block;}
 /* PENDING CARD */
 .pending-body{padding:14px 16px;color:#94a3b8;font-size:13px;text-align:center}
 .pending-body .upload-stmt{background:#f8fafc;border:2px dashed #cbd5e1;border-radius:10px;padding:20px;cursor:pointer;transition:.2s}
@@ -195,8 +200,8 @@ function fmtShort(n){
 }
 
 function getState(id){
-  try{return JSON.parse(localStorage.getItem(MONTH+'_'+id))||{paid:false,reimbs:{},slip:null};}
-  catch{return {paid:false,reimbs:{},slip:null};}
+  try{return JSON.parse(localStorage.getItem(MONTH+'_'+id))||{paid:false,reimbs:{},slip:null,note:''};}
+  catch{return {paid:false,reimbs:{},slip:null,note:''};}
 }
 function saveState(id,state){
   localStorage.setItem(MONTH+'_'+id,JSON.stringify(state));
@@ -248,15 +253,13 @@ function toggleReimb(cardId, idx){
   state.reimbs[idx]=!state.reimbs[idx];
   saveState(cardId,state);
   const checked=!!state.reimbs[idx];
-  // update checkbox
   const el=document.getElementById('reimb-check-'+cardId+'-'+idx);
   if(el){ el.classList.toggle('checked',checked); el.textContent=checked?'✓':''; }
-  // update badge — หา tx-item ที่ตรงกัน แล้วหา reimb-badge
-  const items=document.querySelectorAll('.tx-item');
-  // re-render cards เพื่อให้ badge อัปเดตด้วย
   renderCards();
   updateHeader();
   renderReimb();
+  // sync reimbs ไปที่ GAS
+  gasSync(cardId);
 }
 
 function markPaid(cardId){
@@ -276,6 +279,8 @@ function markPaid(cardId){
     if(badge){badge.textContent='ยังไม่ชำระ';badge.className='card-status-badge status-unpaid';}
   }
   updateHeader();
+  // sync payment status ไปที่ GAS
+  gasSave(cardId, state.paid ? 'paid' : 'unpaid');
 }
 
 function copyText(text,btnId){
@@ -452,6 +457,9 @@ function renderCards(){
           <button class="btn btn-upload" onclick="uploadSlip('${c.id}')">📎 แนบสลิป</button>
         </div>
         <div id="slip-${c.id}" class="slip-preview"></div>
+        <div class="section-label" style="margin-top:12px">หมายเหตุ</div>
+        <textarea id="note-${c.id}" class="note-textarea" placeholder="พิมพ์หมายเหตุสำหรับบัตรนี้..." onchange="saveNote('${c.id}',this.value)">${state.note||''}</textarea>
+        <div id="note-sync-${c.id}" class="note-syncing">☁️ กำลัง sync...</div>
       </div>
     </div>`;
     // load slip
@@ -515,10 +523,15 @@ async function gasLoad() {
       data.cards.forEach(gc => {
         const card = CARDS.find(c => c.card_name === gc.card_name);
         if (card) {
+          // sync payment status
           card.status    = gc.status === 'ชำระแล้ว' ? 'paid' : 'unpaid';
           card.paid_date = gc.paid_date || '';
-          // sync ลง localStorage ด้วย
-          localStorage.setItem('oct2026_'+card.id, card.status);
+          // sync reimbs, note ลง localStorage
+          const st = getState(card.id);
+          if (gc.reimbs && Object.keys(gc.reimbs).length) st.reimbs = gc.reimbs;
+          if (gc.note !== undefined) st.note = gc.note;
+          st.paid = card.status === 'paid';
+          saveState(card.id, st);
         }
       });
       console.log('[GAS] synced', data.cards.length, 'cards');
@@ -530,6 +543,7 @@ async function gasLoad() {
 async function gasSave(cardId, newStatus) {
   const card = CARDS.find(c => c.id === cardId);
   if (!card) return;
+  const st = getState(cardId);
   const paid_date = newStatus === 'paid'
     ? new Date().toLocaleDateString('th-TH',{day:'2-digit',month:'2-digit',year:'numeric'})
     : '';
@@ -537,7 +551,9 @@ async function gasSave(cardId, newStatus) {
     month:     GAS_MONTH,
     card_name: card.card_name,
     status:    newStatus === 'paid' ? 'ชำระแล้ว' : 'รอชำระ',
-    paid_date
+    paid_date,
+    reimbs:    st.reimbs || {},
+    note:      st.note || '',
   };
   try {
     await fetch(GAS_URL, {
@@ -547,6 +563,43 @@ async function gasSave(cardId, newStatus) {
     });
     console.log('[GAS] saved', card.card_name, newStatus);
   } catch(e) { console.warn('[GAS] save failed', e.message); }
+}
+
+// sync reimbs เท่านั้น (ไม่เปลี่ยน status)
+async function gasSync(cardId) {
+  const card = CARDS.find(c => c.id === cardId);
+  if (!card) return;
+  const st = getState(cardId);
+  const body = {
+    month:     GAS_MONTH,
+    card_name: card.card_name,
+    reimbs:    st.reimbs || {},
+    note:      st.note   || '',
+  };
+  try {
+    await fetch(GAS_URL, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    console.log('[GAS] synced reimbs', card.card_name);
+  } catch(e) { console.warn('[GAS] sync failed', e.message); }
+}
+
+// บันทึก note + sync GAS
+let _noteTimers = {};
+function saveNote(cardId, value) {
+  const st = getState(cardId);
+  st.note = value;
+  saveState(cardId, st);
+  // debounce GAS call 1 วินาที
+  clearTimeout(_noteTimers[cardId]);
+  const syncEl = document.getElementById('note-sync-'+cardId);
+  if (syncEl) syncEl.classList.add('show');
+  _noteTimers[cardId] = setTimeout(async () => {
+    await gasSync(cardId);
+    if (syncEl) syncEl.classList.remove('show');
+  }, 1000);
 }
 
 </script>
