@@ -558,7 +558,7 @@ async function gasSave(cardId, newStatus) {
   try {
     await fetch(GAS_URL, {
       method: 'POST',
-      headers: {'Content-Type':'application/json'},
+      headers: {'Content-Type':'text/plain'},
       body: JSON.stringify(body)
     });
     console.log('[GAS] saved', card.card_name, newStatus);
@@ -579,7 +579,7 @@ async function gasSync(cardId) {
   try {
     await fetch(GAS_URL, {
       method: 'POST',
-      headers: {'Content-Type':'application/json'},
+      headers: {'Content-Type':'text/plain'},
       body: JSON.stringify(body)
     });
     console.log('[GAS] synced reimbs', card.card_name);
