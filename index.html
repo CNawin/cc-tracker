@@ -369,8 +369,8 @@ function renderCards(){
     let reimbHtml='<div class="reimb-panel"><div class="reimb-title">⚠️ รายการเบิก Office</div>';
     let reimbSum=0;
     c.transactions.forEach((t,i)=>{
-      const isChecked=t.reimb?(state.reimbs[i]!==false):false;
-      if(t.reimb){
+      const isChecked=state.reimbs[i]!==undefined?!!state.reimbs[i]:!!t.reimb;
+      if(isChecked&&t.amount>0){
         hasReimb=true;
         reimbSum+=t.amount;
         reimbHtml+=`<div class="reimb-item"><span>${t.desc}</span><span style="font-weight:700">${fmtShort(t.amount)}</span></div>`;
@@ -378,13 +378,13 @@ function renderCards(){
       txHtml+=`
       <div class="tx-item">
         <div class="tx-left">
-          ${t.reimb?`<div id="reimb-check-${c.id}-${i}" class="tx-check ${isChecked?'checked':''}" onclick="toggleReimb('${c.id}',${i})">${isChecked?'✓':''}</div>`:'<div style="width:18px"></div>'}
+          <div id="reimb-check-${c.id}-${i}" class="tx-check ${isChecked?'checked':''}" onclick="toggleReimb('${c.id}',${i})" title="เบิก Office">${isChecked?'✓':''}</div>
           <div>
             <div class="tx-desc">${t.desc}</div>
             <div class="tx-date">${t.date}</div>
           </div>
         </div>
-        ${t.reimb?'<span class="tx-reimb-badge">เบิกได้</span>':''}
+        ${isChecked?'<span class="tx-reimb-badge">เบิก Office</span>':''}
         <div class="tx-amount ${t.amount<0?'credit':''}">${fmt(t.amount)}</div>
       </div>`;
     });
@@ -460,17 +460,16 @@ function renderReimb(){
   let html='';
   let grandTotal=0;
   CARDS.forEach(c=>{
-    const items=c.transactions.filter(t=>t.reimb);
-    if(!items.length) return;
     const state=getState(c.id);
     let sum=0;
     let rows='';
-    items.forEach((t,i)=>{
-      const origIdx=c.transactions.indexOf(t);
-      const checked=state.reimbs[origIdx]!==false;
-      if(checked) sum+=t.amount;
+    c.transactions.forEach((t,i)=>{
+      const checked=!!state.reimbs[i];
+      if(!checked) return;
+      if(t.amount>0) sum+=t.amount;
       rows+=`<div class="reimb-row"><span>${t.desc} (${t.date})</span><span style="font-weight:700">${fmtShort(t.amount)}</span></div>`;
     });
+    if(!rows) return;
     grandTotal+=sum;
     html+=`
     <div class="reimb-card">
