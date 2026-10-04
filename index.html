@@ -247,9 +247,16 @@ function toggleReimb(cardId, idx){
   const state=getState(cardId);
   state.reimbs[idx]=!state.reimbs[idx];
   saveState(cardId,state);
+  const checked=!!state.reimbs[idx];
+  // update checkbox
   const el=document.getElementById('reimb-check-'+cardId+'-'+idx);
-  if(el) el.classList.toggle('checked',!!state.reimbs[idx]);
+  if(el){ el.classList.toggle('checked',checked); el.textContent=checked?'✓':''; }
+  // update badge — หา tx-item ที่ตรงกัน แล้วหา reimb-badge
+  const items=document.querySelectorAll('.tx-item');
+  // re-render cards เพื่อให้ badge อัปเดตด้วย
+  renderCards();
   updateHeader();
+  renderReimb();
 }
 
 function markPaid(cardId){
@@ -310,12 +317,10 @@ function updateHeader(){
     if(!state.paid) total+=c.total;
     if(state.paid) paid++;
     c.transactions.forEach((t,i)=>{
-      if(t.reimb && state.reimbs[i]!==false) reimbTotal+=t.amount;
-      else if(t.reimb && state.reimbs[i]===true) reimbTotal+=t.amount;
+      if(state.reimbs[i]===true && t.amount>0) reimbTotal+=t.amount;
     });
   });
-  // calc reimb
-  reimbTotal=0;
+  // calc reimb (placeholder - already done above)
   CARDS.forEach(c=>{
     c.transactions.forEach((t,i)=>{
       if(t.reimb){
