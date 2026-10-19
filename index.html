@@ -513,6 +513,7 @@ function renderCards(){
 }
 
 function renderReimb(){
+  _reimbFile=null; // รายการเปลี่ยน → ต้องสร้าง PDF ใหม่
   let html='';
   let grandTotal=0;
   CARDS.forEach(c=>{
@@ -800,25 +801,43 @@ async function buildReimbPdf(){
   return await out.save();
 }
 
+var _reimbFile = null;
 async function makeReimbPdf(btn){
-  const label = btn.innerHTML;
+  const mobile = matchMedia('(pointer:coarse)').matches;
+  // มือถือ: ขั้นที่ 2 — แชร์ไฟล์ที่สร้างไว้แล้ว (ต้องเรียก share ทันทีตอนกด ไม่งั้น iOS ไม่ยอม)
+  if (_reimbFile && mobile) {
+    const f = _reimbFile;
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [f] })) {
+        await navigator.share({ files: [f], title: 'เบิก Office' });
+      } else {
+        location.href = URL.createObjectURL(f);
+      }
+      _reimbFile = null; btn.innerHTML = '📄 สร้าง PDF เบิก';
+    } catch (e) {
+      if (e.name !== 'AbortError') { location.href = URL.createObjectURL(f); }
+    }
+    return;
+  }
+  const label = '📄 สร้าง PDF เบิก';
   btn.disabled = true; btn.innerHTML = '⏳ กำลังสร้าง PDF...';
   try {
     const bytes = await buildReimbPdf();
     const file = new File([bytes], REIMB_PDF_NAME, { type: 'application/pdf' });
-    const mobile = matchMedia('(pointer:coarse)').matches;
-    if (mobile && navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file], title: 'เบิก Office' });
+    if (mobile) {
+      _reimbFile = file;
+      btn.innerHTML = '📤 PDF พร้อมแล้ว — กดเพื่อแชร์ / บันทึก';
     } else {
       const url = URL.createObjectURL(file);
       const a = document.createElement('a'); a.href = url; a.download = REIMB_PDF_NAME;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
+      btn.innerHTML = '✅ ดาวน์โหลดแล้ว — กดอีกครั้งเพื่อสร้างใหม่';
     }
-    btn.innerHTML = '✅ สร้างแล้ว — กดอีกครั้งเพื่อสร้างใหม่';
   } catch (e) {
-    if (e.name === 'AbortError') { btn.innerHTML = label; }
-    else { console.error(e); alert('สร้าง PDF ไม่สำเร็จ: ' + e.message); btn.innerHTML = label; }
+    console.error(e);
+    alert('สร้าง PDF ไม่สำเร็จ\n\n' + (e && e.message ? e.message : e));
+    btn.innerHTML = label;
   } finally { btn.disabled = false; }
 }
 
